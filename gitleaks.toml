@@ -1,0 +1,64 @@
+title = "CircuitForge secret + PII scanner"
+
+[extend]
+useDefault = true   # inherit all 150+ built-in gitleaks rules
+
+# ── CircuitForge-specific secret patterns ────────────────────────────────────
+
+[[rules]]
+id = "cf-generic-env-token"
+description = "Generic KEY=<token> in env-style assignment — catches FORGEJO_API_TOKEN=hex etc."
+regex = '''(?i)(token|secret|key|password|passwd|pwd|api_key)\s*[=:]\s*['"]?[A-Za-z0-9\-_]{20,}['"]?'''
+[rules.allowlist]
+regexes = [
+    'api_key:\s*ollama',
+    'api_key:\s*any',
+    'your-[a-z\-]+-here',
+    'replace-with-',
+    'xxxx',
+]
+
+# ── PII patterns ──────────────────────────────────────────────────────────────
+
+[[rules]]
+id = "cf-phone-number"
+description = "US phone number committed in source or config"
+regex = '''\b(\+1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}\b'''
+[rules.allowlist]
+regexes = [
+    '555-\d{4}',
+    '555\.\d{4}',
+    '5550\d{4}',
+    '^1234567890$',
+    '0000000000',
+    '1111111111',
+    '2222222222',
+    '9999999999',
+]
+
+[[rules]]
+id = "cf-personal-email"
+description = "Personal webmail address committed in source or config (not .example files)"
+regex = '''[a-zA-Z0-9._%+\-]+@(gmail|yahoo|icloud|hotmail|outlook|proton)\.(com|me)'''
+[rules.allowlist]
+paths = [
+    '.*\.example$',
+    '.*test.*',
+    '.*docs/.*',
+    '.*\.md$',
+]
+
+# ── Global allowlist ──────────────────────────────────────────────────────────
+
+[allowlist]
+description = "CircuitForge global allowlist"
+paths = [
+    '.*\.example$',
+    'docs/reference/.*',
+    'gitleaks\.toml$',
+]
+regexes = [
+    'sk-abcdefghijklmnopqrstuvwxyz',
+    'your-forgejo-api-token-here',
+    'your-[a-z\-]+-here',
+]
