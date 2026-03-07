@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# pre-commit — scan staged diff for secrets + PII via gitleaks
+set -euo pipefail
+
+HOOKS_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BASE_CONFIG="$HOOKS_REPO/gitleaks.toml"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_CONFIG="$REPO_ROOT/.gitleaks.toml"
+
+if ! command -v gitleaks &>/dev/null; then
+    echo "ERROR: gitleaks not found. Install with: sudo apt-get install gitleaks"
+    echo "       or: https://github.com/gitleaks/gitleaks#installing"
+    exit 1
+fi
+
+CONFIG_ARG="--config=$BASE_CONFIG"
+[[ -f "$REPO_CONFIG" ]] && CONFIG_ARG="--config=$REPO_CONFIG"
+
+if ! gitleaks protect --staged $CONFIG_ARG --redact 2>&1; then
+    echo ""
+    echo "Commit blocked: secrets or PII detected in staged changes."
+    echo "Review above, remove the sensitive value, then re-stage and retry."
+    echo "If this is a false positive, add an allowlist entry to .gitleaks.toml"
+    exit 1
+fi

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# pre-push — scan full branch history not yet on remote
+# Safety net: catches anything committed with --no-verify or before hooks were wired
+set -euo pipefail
+
+HOOKS_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BASE_CONFIG="$HOOKS_REPO/gitleaks.toml"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_CONFIG="$REPO_ROOT/.gitleaks.toml"
+
+if ! command -v gitleaks &>/dev/null; then
+    echo "ERROR: gitleaks not found. Install with: sudo apt-get install gitleaks"
+    exit 1
+fi
+
+CONFIG_ARG="--config=$BASE_CONFIG"
+[[ -f "$REPO_CONFIG" ]] && CONFIG_ARG="--config=$REPO_CONFIG"
+
+if ! gitleaks git $CONFIG_ARG --redact 2>&1; then
+    echo ""
+    echo "Push blocked: secrets or PII found in branch history."
+    echo "Use git-filter-repo to scrub, then force-push."
+    echo "See: https://github.com/newren/git-filter-repo"
+    exit 1
+fi
