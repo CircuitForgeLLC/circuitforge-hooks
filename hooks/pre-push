@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # pre-push — scan full branch history not yet on remote
-# Safety net: catches anything committed with --no-verify or before hooks were wired
+# Safety net: catches secrets in full branch history.
+# Skips on empty repos (no commits yet). For large repos this scans all history — acceptable
+# for CircuitForge repo sizes; switch to range scanning if it becomes slow.
 set -euo pipefail
 
 HOOKS_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -16,7 +18,10 @@ fi
 CONFIG_ARG="--config=$BASE_CONFIG"
 [[ -f "$REPO_CONFIG" ]] && CONFIG_ARG="--config=$REPO_CONFIG"
 
-if ! gitleaks git $CONFIG_ARG --redact 2>&1; then
+# Skip scan on empty repo (no commits yet) — gitleaks git exits non-zero with nothing to scan
+git rev-parse HEAD &>/dev/null || exit 0
+
+if ! gitleaks git "$CONFIG_ARG" --redact 2>&1; then
     echo ""
     echo "Push blocked: secrets or PII found in branch history."
     echo "Use git-filter-repo to scrub, then force-push."
