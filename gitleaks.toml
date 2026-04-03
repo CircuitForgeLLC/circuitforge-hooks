@@ -61,4 +61,7 @@ regexes = [
     'sk-abcdefghijklmnopqrstuvwxyz',
     'your-forgejo-api-token-here',
     'your-[a-z\-]+-here',
+    # Python private function/variable on RHS — token = _some_func() is not a secret
+    '=\s+_[a-z_]{10,}',
 ]
+regexTarget = "match"
