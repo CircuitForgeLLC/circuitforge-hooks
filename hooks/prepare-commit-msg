@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# prepare-commit-msg — auto-appends Forgejo ticket link when branch name contains a ticket number
+#
+# Branch name patterns detected:
+#   feat/42-description   fix/42-desc   42-description   issue-42-desc
+#
+# Appends to commit body:
+#   Closes: https://git.opensourcesolarpunk.com/Circuit-Forge/<repo>/issues/<N>
+
+set -euo pipefail
+
+MSG_FILE="$1"
+SOURCE="${2:-}"
+
+# Don't modify merge commits, squash commits, or amends that already have a body
+[[ "$SOURCE" == "merge" || "$SOURCE" == "squash" ]] && exit 0
+
+# Get the current branch name
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+[[ -z "$BRANCH" ]] && exit 0
+
+# Extract ticket number — match digits after type-prefix slash or at start, before a dash/underscore
+TICKET=$(echo "$BRANCH" | grep -oE '(^|/)(issue-)?([0-9]+)[-_]' | grep -oE '[0-9]+' | head -1 || true)
+[[ -z "$TICKET" ]] && exit 0
+
+# Derive repo name from origin remote
+REMOTE_URL=$(git remote get-url origin 2>/dev/null || echo "")
+REPO=$(echo "$REMOTE_URL" | sed -E 's|.*Circuit-Forge/||;s|\.git$||')
+[[ -z "$REPO" ]] && exit 0
+
+TICKET_URL="https://git.opensourcesolarpunk.com/Circuit-Forge/${REPO}/issues/${TICKET}"
+
+# Skip if the URL (or a bare #N ref) is already in the message
+if grep -qF "$TICKET_URL" "$MSG_FILE" || grep -qE "^(Closes|Fixes|Refs|See):.*#${TICKET}" "$MSG_FILE"; then
+    exit 0
+fi
+
+# Append to message body (separated by blank line from subject)
+printf "\nCloses: %s\n" "$TICKET_URL" >> "$MSG_FILE"
