@@ -92,6 +92,13 @@ paths = [
     # keeps the scanner blind only to this known fixture, not to the same patterns
     # anywhere else in the codebase.
     'tests/test_hooks\.sh$',
+    # Hardware/EDA binary and manufacturing file formats — STEP 3D models,
+    # Gerber job metadata, and avrdude programmer configs contain large numeric
+    # coordinate/data blobs and embedded tool metadata (emails, IDs) that are
+    # normal manufacturing artifacts, not secrets.
+    '.*\.step$',
+    '.*\.gbrjob$',
+    '.*avrdude.*\.conf$',
 ]
 regexes = [
     'sk-abcdefghijklmnopqrstuvwxyz',
