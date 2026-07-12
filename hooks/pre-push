@@ -1,15 +1,74 @@
 #!/usr/bin/env bash
-# pre-push — scan full branch history not yet on remote
-# Safety net: catches secrets in full branch history.
-# Skips on empty repos (no commits yet). For large repos this scans all history — acceptable
-# for CircuitForge repo sizes; switch to range scanning if it becomes slow.
+# pre-push — core-hours push hold, then scan full branch history not yet on remote
+#
+# Core-hours hold: pushes attempted Mon-Fri 10:00-15:00 (local time) are NOT rejected —
+# they are queued for automatic delivery once outside that window (see
+# scripts/flush-push-queue.sh), and this hook exits nonzero so git itself doesn't also
+# push right now. This is a visible, documented conflict-of-interest guardrail (it prints
+# exactly what it's doing every time it fires) — not a concealment mechanism. Nothing is
+# lost: the commit stays exactly as authored, only the push (the point at which it becomes
+# visible on the remote) is deferred. Outside core hours, this hook falls straight through
+# to the existing gitleaks safety-net scan below.
 set -euo pipefail
 
 HOOKS_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE_CONFIG="$HOOKS_REPO/gitleaks.toml"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 REPO_CONFIG="$REPO_ROOT/.gitleaks.toml"
+REMOTE_NAME="${1:-origin}"
 
+QUEUE_DIR="${CIRCUITFORGE_QUEUE_DIR:-/Library/Development/CircuitForge/.push-queue}"
+QUEUE_FILE="$QUEUE_DIR/queue.tsv"
+LOG_FILE="$QUEUE_DIR/queue.log"
+
+# --- Core-hours check -------------------------------------------------------
+# Window: Mon-Fri, 10:00-15:00, local time (matches the calling user's `date`).
+in_core_hours() {
+    local dow hour
+    dow=$(date +%u)   # 1=Mon .. 7=Sun
+    hour=$(date +%H)  # 00-23
+    hour=$((10#$hour)) # force base-10 (avoid octal parse on e.g. "08")
+    if (( dow >= 1 && dow <= 5 )) && (( hour >= 10 && hour < 15 )); then
+        return 0
+    fi
+    return 1
+}
+
+if [[ "${CIRCUITFORGE_BYPASS_CORE_HOURS:-}" != "1" ]] && in_core_hours; then
+    mkdir -p "$QUEUE_DIR"
+    touch "$QUEUE_FILE" "$LOG_FILE"
+
+    queued_any=false
+    while read -r local_ref local_oid remote_ref remote_oid; do
+        [[ -z "$local_ref" ]] && continue
+        # Skip deletes (local_oid all zeros) — nothing to queue for a branch deletion.
+        if [[ "$local_oid" =~ ^0+$ ]]; then
+            continue
+        fi
+        entry="$REPO_ROOT	$REMOTE_NAME	$local_ref"
+        if ! grep -qxF "$entry" "$QUEUE_FILE" 2>/dev/null; then
+            echo "$entry" >> "$QUEUE_FILE"
+        fi
+        queued_any=true
+    done
+
+    if [[ "$queued_any" == "true" ]]; then
+        ts="$(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "$ts  queued  $REPO_ROOT  $REMOTE_NAME" >> "$LOG_FILE"
+        echo ""
+        echo "Push held: it's core hours (Mon-Fri 10:00-15:00 local)."
+        echo "Your commits are safe locally — nothing was lost or altered."
+        echo "This push has been queued and will go out automatically once core hours end."
+        echo "Queue file: $QUEUE_FILE"
+        echo "To push immediately anyway (bypasses the hold, does not bypass the secret scan below):"
+        echo "  bash $HOOKS_REPO/scripts/flush-push-queue.sh --force"
+        echo ""
+    fi
+    exit 1
+fi
+
+# --- Existing gitleaks safety net (only reached outside core hours, or via a
+#     direct `git push` run by the flush script once the hold has lifted) ----
 if ! command -v gitleaks &>/dev/null; then
     echo "ERROR: gitleaks not found. Install with: sudo apt-get install gitleaks"
     exit 1

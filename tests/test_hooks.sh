@@ -115,6 +115,69 @@ if bash "$HOOKS_DIR/commit-msg" "$tmpfile" &>/dev/null; then fail "should have r
 rm -f "$tmpfile"
 
 echo ""
+echo "=== pre-push core-hours hold tests ==="
+
+# Fake `date` binary so the core-hours window check is deterministic regardless of
+# when this suite actually runs — only +%u and +%H are intercepted, everything else
+# (e.g. the real timestamp used in log lines) falls through to the real date binary.
+make_fake_date() {
+    local dow="$1" hour="$2" bindir
+    bindir=$(mktemp -d)
+    cat > "$bindir/date" <<EOF
+#!/usr/bin/env bash
+case "\$1" in
+  +%u) echo $dow ;;
+  +%H) echo $hour ;;
+  *) exec /usr/bin/date "\$@" ;;
+esac
+EOF
+    chmod +x "$bindir/date"
+    echo "$bindir"
+}
+
+echo "Test 13: pre-push holds and queues during core hours (Mon 12:00)"
+REPO=$(setup_temp_repo)
+git -C "$REPO" commit --allow-empty -q -m "feat: seed commit"
+TESTQUEUE=$(mktemp -d)
+FAKEBIN=$(make_fake_date 1 12)
+RESULT=$(cd "$REPO" && CIRCUITFORGE_QUEUE_DIR="$TESTQUEUE" PATH="$FAKEBIN:$PATH" \
+    bash -c 'echo "refs/heads/main abc123 refs/heads/main def456" | bash "'"$HOOKS_DIR"'/pre-push" origin' 2>&1; echo "EXIT:$?")
+if echo "$RESULT" | grep -q "EXIT:1" && grep -qF "$REPO" "$TESTQUEUE/queue.tsv" 2>/dev/null; then
+    pass "held push during core hours and recorded it in the queue"
+else
+    fail "should have held the push and queued it — got: $RESULT"
+fi
+rm -rf "$REPO" "$TESTQUEUE" "$FAKEBIN"
+
+echo "Test 14: pre-push does not hold outside core hours (Sat, any time)"
+REPO=$(setup_temp_repo)
+# No commits in this repo — the hook's own empty-repo check (git rev-parse HEAD) makes
+# it exit 0 right after the core-hours check, which is exactly what we're isolating here.
+TESTQUEUE=$(mktemp -d)
+FAKEBIN=$(make_fake_date 6 12)
+RESULT=$(cd "$REPO" && CIRCUITFORGE_QUEUE_DIR="$TESTQUEUE" PATH="$FAKEBIN:$PATH" \
+    bash -c 'echo "refs/heads/main abc123 refs/heads/main def456" | bash "'"$HOOKS_DIR"'/pre-push" origin' 2>&1; echo "EXIT:$?")
+if echo "$RESULT" | grep -q "EXIT:0" && [[ ! -s "$TESTQUEUE/queue.tsv" ]]; then
+    pass "did not hold push outside core hours, queue stayed empty"
+else
+    fail "should have let the push proceed outside core hours — got: $RESULT"
+fi
+rm -rf "$REPO" "$TESTQUEUE" "$FAKEBIN"
+
+echo "Test 15: CIRCUITFORGE_BYPASS_CORE_HOURS skips the hold even during core hours"
+REPO=$(setup_temp_repo)
+TESTQUEUE=$(mktemp -d)
+FAKEBIN=$(make_fake_date 1 12)
+RESULT=$(cd "$REPO" && CIRCUITFORGE_QUEUE_DIR="$TESTQUEUE" CIRCUITFORGE_BYPASS_CORE_HOURS=1 PATH="$FAKEBIN:$PATH" \
+    bash -c 'echo "refs/heads/main abc123 refs/heads/main def456" | bash "'"$HOOKS_DIR"'/pre-push" origin' 2>&1; echo "EXIT:$?")
+if echo "$RESULT" | grep -q "EXIT:0" && [[ ! -s "$TESTQUEUE/queue.tsv" ]]; then
+    pass "bypass env var skipped the hold during simulated core hours"
+else
+    fail "bypass env var should have skipped the hold — got: $RESULT"
+fi
+rm -rf "$REPO" "$TESTQUEUE" "$FAKEBIN"
+
+echo ""
 echo "=== Results ==="
 echo "  Passed: $PASS_COUNT"
 echo "  Failed: $FAIL_COUNT"

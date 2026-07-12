@@ -10,12 +10,30 @@ id = "cf-generic-env-token"
 description = "Generic KEY=<token> in env-style assignment — catches FORGEJO_API_TOKEN=hex etc."
 regex = '''(?i)(token|secret|key|password|passwd|pwd|api_key)\s*[=:]\s*['"]?[A-Za-z0-9\-_]{20,}['"]?'''
 [rules.allowlist]
+regexTarget = "match"
 regexes = [
     'api_key:\s*ollama',
     'api_key:\s*any',
     'your-[a-z\-]+-here',
     'replace-with-',
     'xxxx',
+    # Exact literal RHS — the cryptography stdlib call, not a secret value.
+    # The bare "key" trigger substring-matches any "..._key = " assignment
+    # (needed to catch things like secret_key=/signing_key=), which is why
+    # this needs an explicit allowlist entry rather than tightening the regex.
+    'key\s*=\s*load_pem_private_key$',
+    # JS localStorage key constant (circuitforge_orch/coordinator/dashboard.html) — an
+    # identifier naming a browser storage slot, not a secret value.
+    "KEY\\s*=\\s*'cf-orch-dashboard-settings'",
+]
+# Path-scoped, not pattern-scoped: these two files hold synthetic CFG-...
+# test license keys (see docs on the CFG-XXXX-... format). Allowlisting the
+# *pattern* here would blind the scanner to a real leaked license key
+# anywhere in the repo — so only these known fixture files are exempted,
+# not the CFG- format itself.
+paths = [
+    'tests/test_config/test_license\.py$',
+    'tests/test_resources/test_coordinator_auth\.py$',
 ]
 
 # ── PII patterns ──────────────────────────────────────────────────────────────
@@ -34,6 +52,19 @@ regexes = [
     '1111111111',
     '2222222222',
     '9999999999',
+    # Bare 10-digit numeric literals in circuitforge_core/mqtt/meshtastic/mqtt_backend.py's
+    # docstring — Meshtastic protobuf example values (Unix timestamp, broadcast node ID
+    # 2^32-1, and a longitude_i fixed-point int), not phone numbers. Unlike the phone
+    # patterns above these have no separators, but the underlying regex has no way to
+    # distinguish a bare 10-digit ID/timestamp from a bare 10-digit phone number, so
+    # allowlisting the specific known-safe literals is the targeted fix (see
+    # Test 3 in tests/test_hooks.sh, which the regex itself must keep catching).
+    '^1716200000$',
+    '^4294967295$',
+    '^1220848320$',
+    # 1 GiB in bytes — circuitforge-orch/tests/test_telemetry_sysmetrics.py's NFS
+    # mountstats fixture data (/proc/mountstats sample), not a phone number.
+    '^1073741824$',
 ]
 
 [[rules]]
@@ -56,6 +87,11 @@ paths = [
     '.*\.example$',
     'docs/reference/.*',
     'gitleaks\.toml$',
+    # Test hook fixtures — this file injects synthetic secrets into temp repos to
+    # verify the pre-commit hook catches them. Allowlisting by path (not pattern)
+    # keeps the scanner blind only to this known fixture, not to the same patterns
+    # anywhere else in the codebase.
+    'tests/test_hooks\.sh$',
 ]
 regexes = [
     'sk-abcdefghijklmnopqrstuvwxyz',
@@ -63,5 +99,16 @@ regexes = [
     'your-[a-z\-]+-here',
     # Python private function/variable on RHS — token = _some_func() is not a secret
     '=\s+_[a-z_]{10,}',
+    # ModelEntry catalog key= field (circuitforge-orch scripts/pull_models_*.py) —
+    # a model-download identifier, not an API key. Built-in generic-api-key rule
+    # false-positives on key="<model-slug>" patterns.
+    'key="granite-4\.1-8b"',
+    # XKCD-famous example password phrase — appears in E2E test fixtures across
+    # products (e.g. website/tests/e2e/auth/). Not a real credential.
+    'correct-horse-battery-staple',
+    # Synthetic dev-only license keys used as hardcoded fallbacks in local dev/test
+    # environments (e.g. website/server/api/checkout/paypal/capture.post.ts).
+    # Pattern: CFG-<4-char product code>-DEV<digit>-DEV<digit>-DEV<digit>
+    'CFG-[A-Z]{4}-DEV\d-DEV\d-DEV\d',
 ]
 regexTarget = "match"
