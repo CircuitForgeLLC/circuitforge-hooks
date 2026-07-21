@@ -87,3 +87,45 @@ if ! gitleaks git "$CONFIG_ARG" --redact 2>&1; then
     echo "See: https://github.com/newren/git-filter-repo"
     exit 1
 fi
+
+# --- Issue triage: mark status:in-progress ------------------------------------
+# Best-effort, non-blocking. Reads FORGEJO_TOKEN env var or git config forgejo.token.
+# Only fires when branch name contains an issue number (feat/42-desc, fix/42, 42-desc).
+_cf_mark_in_progress() {
+    local token branch ticket remote_url repo label_id
+
+    token="${FORGEJO_TOKEN:-$(git config --get forgejo.token 2>/dev/null || true)}"
+    [[ -z "$token" ]] && return 0
+
+    branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+    [[ -z "$branch" ]] && return 0
+
+    # Same pattern as prepare-commit-msg
+    ticket=$(echo "$branch" | grep -oE '(^|/)(issue-)?([0-9]+)[-_]' | grep -oE '[0-9]+' | head -1 || true)
+    [[ -z "$ticket" ]] && return 0
+
+    remote_url=$(git remote get-url "${REMOTE_NAME}" 2>/dev/null || echo "")
+    # Only act on Circuit-Forge org repos
+    echo "$remote_url" | grep -q "Circuit-Forge" || return 0
+    repo=$(echo "$remote_url" | sed -E 's|.*Circuit-Forge/||;s|\.git$||')
+    [[ -z "$repo" ]] && return 0
+
+    label_id=$(curl -sf -H "Authorization: token $token" \
+      "https://git.opensourcesolarpunk.com/api/v1/repos/Circuit-Forge/${repo}/labels?limit=50" \
+      | python3 -c "
+import sys, json
+labels = json.load(sys.stdin)
+print(next((str(l['id']) for l in labels if l['name'] == 'status:in-progress'), ''))
+" 2>/dev/null || true)
+    [[ -z "$label_id" ]] && return 0
+
+    curl -sf -X POST \
+      -H "Authorization: token $token" \
+      -H "Content-Type: application/json" \
+      -d "{\"labels\":[$label_id]}" \
+      "https://git.opensourcesolarpunk.com/api/v1/repos/Circuit-Forge/${repo}/issues/${ticket}/labels" \
+      >/dev/null 2>&1 || true
+
+    echo "  → issue #${ticket} marked status:in-progress"
+}
+_cf_mark_in_progress
