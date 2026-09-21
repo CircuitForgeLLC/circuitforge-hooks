@@ -1,5 +1,7 @@
 # circuitforge-hooks
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Centralised git hooks for all CircuitForge repos.
 
 ## What it does
@@ -68,3 +70,5 @@ Add tests to `tests/test_hooks.sh` covering both the blocked and allowed cases.
 ---
 
 Humans own design, architecture, code review, testing, and verification. LLMs are part of our development workflow. [Our positions on LLM use →](https://circuitforge.tech/positions)
+
+MIT License. See `LICENSE` for full text. © 2026 Circuit Forge LLC
