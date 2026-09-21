@@ -49,7 +49,10 @@ trap 'rm -f "$remaining_file"' EXIT
 while IFS=$'\t' read -r repo_root remote local_ref; do
     [[ -z "$repo_root" ]] && continue
 
-    if [[ ! -d "$repo_root/.git" ]]; then
+    # A normal repo has .git as a directory; a git worktree has .git as a file
+    # (pointing at the main repo's worktrees dir) -- accept either with -e, not -d,
+    # or a queued push from a worktree gets silently dropped here every time.
+    if [[ ! -e "$repo_root/.git" ]]; then
         echo "$(ts)  drop     $repo_root  $remote  $local_ref  (repo no longer exists)" >> "$LOG_FILE"
         continue
     fi
